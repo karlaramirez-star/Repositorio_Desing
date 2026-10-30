@@ -74,18 +74,22 @@ La restricción `@tecnomotum.com` también se valida en el código después del 
 
 El panel no crea usuarios nuevos directamente desde el navegador. Invoca la Edge Function `admin-invite-user`, que verifica que quien solicita el alta tenga rol Administrador y utiliza una clave privada únicamente en el servidor.
 
-Necesitas Supabase CLI en tu computadora. Ejecuta desde la carpeta del proyecto:
+Puedes desplegarla con Supabase CLI o directamente desde el Dashboard. **Opción más sencilla, desde el Dashboard:** abre Edge Functions → Deploy a new function → Via Editor; nombra la función `admin-invite-user`, reemplaza el código de ejemplo por el contenido completo de `supabase/functions/admin-invite-user/index.ts` y pulsa Deploy function. Después entra a Edge Function Secrets y agrega `MOTUM_SUPABASE_SECRET_KEY` con el valor de tu Secret Key del proyecto.
+
+**Opción con Supabase CLI:** necesitas Supabase CLI en tu computadora. Ejecuta desde la carpeta raíz del proyecto:
 
 ```bash
 supabase login
 supabase link --project-ref TU_PROJECT_REF
-supabase secrets set SUPABASE_SECRET_KEY=TU_SECRET_KEY --project-ref TU_PROJECT_REF
+supabase secrets set MOTUM_SUPABASE_SECRET_KEY=TU_SECRET_KEY --project-ref TU_PROJECT_REF
 supabase functions deploy admin-invite-user --project-ref TU_PROJECT_REF
 ```
 
 Obtén `TU_SECRET_KEY` en **Project Settings → API Keys**. Es la clave privada del proyecto (`sb_secret_...`, o la clave `service_role` heredada si tu proyecto todavía muestra esa opción). Guárdala como secreto de Edge Functions; nunca la pongas en `index.html`, `supabase-integration.js`, ni en otro archivo público.
 
 Supabase proporciona `SUPABASE_URL` y `SUPABASE_ANON_KEY` al entorno de Edge Functions. Si el proyecto no las muestra como variables disponibles, agrégalas también como secretos desde el Dashboard.
+
+Importante: no uses el nombre `SUPABASE_SECRET_KEY` para tu secreto personalizado: Supabase reserva el prefijo `SUPABASE_` para variables administradas por la plataforma. El nombre correcto para esta función es `MOTUM_SUPABASE_SECRET_KEY`.
 
 La función crea cuentas sin contraseña para mantener Google como único método de acceso, o reutiliza la cuenta Auth si ya existe. Supabase puede vincular una identidad OAuth verificada cuando coincide con el correo de la cuenta existente. La función no envía una invitación de contraseña.
 
