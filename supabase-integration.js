@@ -70,7 +70,13 @@
     return (required[section] || []).some((code) => permissionSet().has(code)) || section === 'profile';
   };
 
+  // Loading screen shown while the session is validated (activated from index.html <head>).
+  function setAuthBoot(visible) {
+    document.documentElement.classList.toggle('auth-booting', !!visible);
+  }
+
   function showAuthError(message) {
+    setAuthBoot(false);
     const targets = ['reg-err', 'login-err'];
     targets.forEach((id) => {
       const el = $(id);
@@ -435,6 +441,7 @@
     currentSupabaseUser.id === user.id &&
     lastLoadedUserId === user.id
   ) {
+    setAuthBoot(false);
     return;
   }
 
@@ -442,6 +449,7 @@
     authProcessing = (async () => {
       try {
         setAuthLoading(true);
+        if (!currentSupabaseUser) setAuthBoot(true);
         const context = await fetchUserContext(user);
         currentSupabaseUser = user;
         window._supabaseUser = user;
@@ -480,6 +488,7 @@
         ['reg-err', 'login-err'].forEach((id) => { if ($(id)) $(id).style.display = 'none'; });
         if (window._canUseAdminPanel) window.goTo('pg-admin');
         else window.goTo('pg-landing');
+        setAuthBoot(false);
       } catch (error) {
         console.error('No se pudo validar la sesión Supabase:', error);
         await sbClient.auth.signOut();
@@ -1510,9 +1519,16 @@ if (typeof originalRenderAdmin === 'function') {
       }
     });
 
+    // Safety net: never leave the loading screen blocking the page if validation hangs.
+    setTimeout(() => {
+      if (document.documentElement.classList.contains('auth-booting') && !currentSupabaseUser) {
+        showAuthError('La validación de tu sesión está tardando más de lo normal. Revisa tu conexión e inténtalo de nuevo.');
+      }
+    }, 30000);
     const { data, error } = await sbClient.auth.getSession();
     if (error) { showAuthError('No se pudo recuperar la sesión: ' + error.message); return; }
     if (data.session) await processAuthSession(data.session);
+    else setAuthBoot(false);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize);
