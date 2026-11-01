@@ -70,7 +70,39 @@
     return (required[section] || []).some((code) => permissionSet().has(code)) || section === 'profile';
   };
 
+  // Loading screen shown while the session is validated (activated from index.html <head>).
+  // A 30 s timer runs for as long as the screen is visible, i.e. through the whole
+  // validation and data load, until the user reaches their screen.
+  const AUTH_BOOT_TIMEOUT_MS = 30000;
+  let authBootTimer = null;
+  let authBootTimedOut = false;
+  const isAuthBooting = () => document.documentElement.classList.contains('auth-booting');
+
+  function clearAuthBootTimer() {
+    if (authBootTimer) clearTimeout(authBootTimer);
+    authBootTimer = null;
+  }
+
+  function startAuthBootTimer() {
+    if (authBootTimer || authBootTimedOut) return;
+    authBootTimer = setTimeout(() => {
+      authBootTimer = null;
+      if (!isAuthBooting()) return;
+      authBootTimedOut = true;
+      setAuthLoading(false);
+      showAuthError('La validación de tu sesión está tardando más de lo normal. Revisa tu conexión y recarga la página para intentarlo de nuevo.');
+    }, AUTH_BOOT_TIMEOUT_MS);
+  }
+
+  function setAuthBoot(visible) {
+    // After a timeout the screen is not shown again during this page load.
+    const show = !!visible && !authBootTimedOut;
+    document.documentElement.classList.toggle('auth-booting', show);
+    if (show) startAuthBootTimer(); else clearAuthBootTimer();
+  }
+
   function showAuthError(message) {
+    setAuthBoot(false);
     const targets = ['reg-err', 'login-err'];
     targets.forEach((id) => {
       const el = $(id);
@@ -435,6 +467,7 @@
     currentSupabaseUser.id === user.id &&
     lastLoadedUserId === user.id
   ) {
+    setAuthBoot(false);
     return;
   }
 
@@ -442,6 +475,7 @@
     authProcessing = (async () => {
       try {
         setAuthLoading(true);
+        if (!currentSupabaseUser) setAuthBoot(true);
         const context = await fetchUserContext(user);
         currentSupabaseUser = user;
         window._supabaseUser = user;
@@ -477,9 +511,13 @@
           await writeActivity('Autenticación', 'Inicio de sesión', 'Inicio de sesión con Google mediante Supabase.', { area: window._regUser.area });
         }
         setAuthLoading(false);
+        // If validation exceeded the time limit, the user already sees the timeout
+        // message: do not redirect them unexpectedly when the late process finishes.
+        if (authBootTimedOut) return;
         ['reg-err', 'login-err'].forEach((id) => { if ($(id)) $(id).style.display = 'none'; });
         if (window._canUseAdminPanel) window.goTo('pg-admin');
         else window.goTo('pg-landing');
+        setAuthBoot(false);
       } catch (error) {
         console.error('No se pudo validar la sesión Supabase:', error);
         await sbClient.auth.signOut();
@@ -1478,6 +1516,8 @@ if (typeof originalRenderAdmin === 'function') {
   }
 
   async function initialize() {
+    // The loading screen may already be visible from index.html <head>: start its timer.
+    if (isAuthBooting()) setAuthBoot(true);
     hideLegacyAdminPasswordLogin();
     // The shipped arrays are UI defaults only; production rows are loaded from Supabase after authentication.
     if (Array.isArray(window.USERS_DB)) window.USERS_DB.splice(0);
@@ -1513,6 +1553,7 @@ if (typeof originalRenderAdmin === 'function') {
     const { data, error } = await sbClient.auth.getSession();
     if (error) { showAuthError('No se pudo recuperar la sesión: ' + error.message); return; }
     if (data.session) await processAuthSession(data.session);
+    else setAuthBoot(false);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize);

@@ -4,6 +4,36 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Repositorio Digital · Motum Operaciones</title>
+<style id="auth-boot-style">
+/* Pantalla de carga mientras se valida la sesión (se activa antes del primer pintado). */
+#auth-boot{display:none;position:fixed;inset:0;z-index:2147483000;background:#fff;align-items:center;justify-content:center;padding:24px 16px;text-align:center;font-family:'Montserrat','Inter',sans-serif}
+html.auth-booting #auth-boot{display:flex}
+html.auth-booting,html.auth-booting body{overflow:hidden}
+html.auth-booting body>:not(#auth-boot){visibility:hidden}
+#auth-boot .auth-boot-box{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:420px}
+#auth-boot .auth-boot-spinner{width:52px;height:52px;border-radius:50%;border:4px solid #EBF3FF;border-top-color:#005BBB;animation:auth-boot-spin .9s linear infinite}
+#auth-boot .auth-boot-title{margin:0;font-size:20px;font-weight:700;color:#002F5F;letter-spacing:-.01em}
+#auth-boot .auth-boot-text{margin:0;font-size:14px;line-height:1.55;color:#5b6b82}
+@keyframes auth-boot-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#auth-boot .auth-boot-spinner{animation-duration:2.4s}}
+@media (max-width:480px){#auth-boot .auth-boot-title{font-size:18px}#auth-boot .auth-boot-text{font-size:13px}}
+</style>
+<script>
+/* Si hay una sesión guardada de Supabase o se regresa del inicio de sesión con Google,
+   se muestra la pantalla de carga desde el primer renderizado. */
+(function(){
+  try{
+    var show=/[?&#](code|access_token)=/.test(window.location.search+window.location.hash);
+    if(!show){
+      for(var i=0;i<window.localStorage.length;i++){
+        var k=window.localStorage.key(i);
+        if(/^sb-.+-auth-token$/.test(k)&&window.localStorage.getItem(k)){show=true;break;}
+      }
+    }
+    if(show)document.documentElement.classList.add('auth-booting');
+  }catch(e){}
+})();
+</script>
 <link href="https://fonts.bunny.net/css?family=montserrat:400,500,600,700,800&family=inter:400,500&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -1541,6 +1571,13 @@ td{padding:14px 14px;font-size:13px;color:var(--text);vertical-align:middle;}
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+<div id="auth-boot" role="status" aria-live="polite">
+  <div class="auth-boot-box">
+    <div class="auth-boot-spinner" aria-hidden="true"></div>
+    <p class="auth-boot-title">Verificando acceso...</p>
+    <p class="auth-boot-text">Estamos preparando tu espacio de trabajo. Por favor, espera.</p>
+  </div>
+</div>
 
 <!-- ══════ WELCOME SCREEN (PDF-faithful) ══════ -->
 <div id="pg-welcome" class="page active">
