@@ -852,11 +852,62 @@
     if (error) modalBody.insertBefore(field, error); else modalBody.appendChild(field);
   }
 
+  // Digital items are always located by their real Supabase UUID (dbId). The local
+  // numeric id is positional and may change between reloads.
+  function findDigitalItem(ref) {
+    if (ref === null || ref === undefined || ref === '') return null;
+    const list = DIGITAL_ITEMS_DATA || [];
+    return list.find((item) => item.dbId && String(item.dbId) === String(ref))
+      || list.find((item) => !item.dbId && String(item.id) === String(ref))
+      || null;
+  }
+
+  // Single source of truth for the selected category: the global `digitalCatActiva`
+  // declared in index.html (a `let`, so it is not a property of window).
+  function currentDigitalCategory() {
+    const cats = (typeof DIGITAL_CATS !== 'undefined' && Array.isArray(DIGITAL_CATS)) ? DIGITAL_CATS : [];
+    let cat = (typeof digitalCatActiva !== 'undefined') ? digitalCatActiva : '';
+    if (cats.length && !cats.some((item) => item.id === cat)) {
+      cat = cats[0].id;
+      try { digitalCatActiva = cat; } catch (_) {}
+    }
+    return cat;
+  }
+
   const legacyOpenContenidoModal = window.openContenidoModal;
   window.openContenidoModal = function openContenidoModal(id) {
     ensureDigitalFileInput();
-    if (typeof legacyOpenContenidoModal === 'function') legacyOpenContenidoModal(id);
+    const item = findDigitalItem(id);
+    if (id && !item) {
+      showMessage('No se encontró el contenido seleccionado. Recarga la página e inténtalo de nuevo.', 'error');
+      return;
+    }
+    if (typeof legacyOpenContenidoModal === 'function') legacyOpenContenidoModal(item ? item.id : null);
     if ($('cmod-file')) $('cmod-file').value = '';
+    if (item) {
+      $('cmod-id').value = item.dbId || item.id;
+      $('cmod-nombre').value = item.nombre || '';
+      $('cmod-cat').value = item.catId || '';
+      $('cmod-tam').value = item.tam && item.tam !== '—' ? item.tam : '';
+      const typeSelect = $('cmod-tipo');
+      if (typeSelect && item.tipo && ![...typeSelect.options].some((opt) => opt.value === item.tipo)) {
+        typeSelect.add(new Option(item.tipo, item.tipo));
+      }
+      if (typeSelect) typeSelect.value = item.tipo || 'PDF';
+      if ($('cmod-activo')) $('cmod-activo').checked = item.activo !== false;
+    }
+    let current = $('cmod-file-current');
+    if (!current && $('cmod-file')) {
+      current = document.createElement('small');
+      current.id = 'cmod-file-current';
+      current.style.cssText = 'display:block;margin-top:4px;color:var(--muted)';
+      $('cmod-file').parentNode.appendChild(current);
+    }
+    if (current) {
+      current.textContent = item
+        ? (item.ruta ? 'Archivo actual: ' + (item.nombreArchivo || item.ruta.split('/').pop()) + '. Selecciona otro solo si deseas reemplazarlo.' : 'Este contenido aún no tiene archivo adjunto.')
+        : '';
+    }
   };
 
   window.saveContenido = async function saveContenido() {
@@ -874,7 +925,9 @@
     const err = $('cmod-err');
     if (!name) { err.textContent = 'El nombre es obligatorio.'; err.style.display = 'block'; return; }
     if (!category) { err.textContent = 'Selecciona una categoría.'; err.style.display = 'block'; return; }
-    const old = id ? (DIGITAL_ITEMS_DATA || []).find((item) => String(item.id) === String(id)) : null;
+    const old = id ? findDigitalItem(id) : null;
+    if (id && !old) { err.textContent = 'No se encontró el contenido a editar. Recarga la página.'; err.style.display = 'block'; return; }
+    if (old && !old.dbId) { err.textContent = 'Este contenido no tiene identificador de Supabase y no puede editarse.'; err.style.display = 'block'; return; }
     if (!old && !file) { err.textContent = 'Selecciona el archivo que deseas publicar.'; err.style.display = 'block'; return; }
     const btn = $('contenido-modal').querySelector('.modal-foot .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
@@ -914,13 +967,15 @@
         }).eq('id', row.id);
         if (updateError) throw updateError;
       }
-      const { error: clearError } = await ensureClient().from('plantilla_departamentos').delete().eq('plantilla_id', row.id);
-      if (clearError) throw clearError;
-      const allowedAreas = isAdmin() ? (window.AREAS || []) : (window.AREAS || []).filter((area) => ((window._regUser?.areas) || []).includes(area.nombre));
-      const links = allowedAreas.map((area) => ({ plantilla_id: row.id, departamento_id: area.dbId }));
-      if (links.length) {
-        const { error: linksError } = await ensureClient().from('plantilla_departamentos').insert(links);
-        if (linksError) throw linksError;
+      // Departments are assigned only when the content is created; editing a record
+      // keeps its existing department assignments untouched.
+      if (!old) {
+        const allowedAreas = isAdmin() ? (window.AREAS || []) : (window.AREAS || []).filter((area) => ((window._regUser?.areas) || []).includes(area.nombre));
+        const links = allowedAreas.map((area) => ({ plantilla_id: row.id, departamento_id: area.dbId }));
+        if (links.length) {
+          const { error: linksError } = await ensureClient().from('plantilla_departamentos').insert(links);
+          if (linksError) throw linksError;
+        }
       }
       await loadApplicationData({ isAdmin: isAdmin() });
       window.closeContenidoModal();
@@ -947,7 +1002,7 @@
   }
 
   window.deleteContenido = async function deleteContenido(id) {
-    const item = (DIGITAL_ITEMS_DATA || []).find((row) => row.id === id);
+    const item = findDigitalItem(id);
     if (!item || !confirm('¿Eliminar este contenido? Esta acción no se puede deshacer.')) return;
     try {
       const { error } = await ensureClient().from('plantillas').delete().eq('id', item.dbId);
@@ -961,7 +1016,7 @@
   };
 
   window.toggleContenido = async function toggleContenido(id) {
-    const item = (DIGITAL_ITEMS_DATA || []).find((row) => row.id === id);
+    const item = findDigitalItem(id);
     if (!item) return;
     const next = !item.activo;
     if (next && !hasPermission('contenido.publicar')) {
@@ -981,7 +1036,7 @@
 
   window.renderDigitalItems = function renderDigitalItems() {
     const search = String(($('digital-search') || {}).value || '').toLowerCase();
-    const cat = window.digitalCatActiva || 'seguridad';
+    const cat = currentDigitalCategory();
     const items = (DIGITAL_ITEMS_DATA || []).filter((item) => {
       const permitted = isAdmin() || (item.areaIds || []).some((id) => ((window._regUser?.areas) || []).includes(localDepartment(id)?.nombre));
       return item.activo && permitted && item.catId === cat && item.nombre.toLowerCase().includes(search);
@@ -994,17 +1049,44 @@
         '<div class="ditem-info"><div class="ditem-name">' + safeText(item.nombre) + '</div>' +
         '<div class="ditem-meta">' + safeText(item.tam) + ' · Actualizado: ' + safeText(date) + '</div></div>' +
         '<span class="ditem-tipo">' + safeText(item.tipo) + '</span>' +
-        '<button class="btn btn-primary btn-sm" style="margin-left:8px" onclick="downloadDigitalFile(' + item.id + ')">↓ Descargar</button></div>';
+        (item.ruta
+          ? '<button class="btn btn-primary btn-sm" style="margin-left:8px" onclick="downloadDigitalFile(\'' + safeText(item.dbId || item.id) + '\')">↓ Descargar</button>'
+          : '<button class="btn btn-primary btn-sm" style="margin-left:8px" disabled title="Este contenido aún no tiene archivo adjunto.">Archivo pendiente</button>') +
+        '</div>';
     }).join('') : '<div class="empty-state"><p>No se encontraron archivos disponibles.</p></div>';
   };
 
   window.downloadDigitalFile = async function downloadDigitalFile(id) {
-    const item = (DIGITAL_ITEMS_DATA || []).find((row) => row.id === id);
-    if (!item || !item.ruta) { showMessage('Este registro todavía no tiene un archivo adjunto.', 'error'); return; }
-    const { data, error } = await ensureClient().storage.from(SUPABASE_BUCKET).createSignedUrl(item.ruta, 90);
-    if (error || !data?.signedUrl) { showMessage('No fue posible generar el enlace de descarga: ' + (error?.message || ''), 'error'); return; }
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
-    await writeActivity('Contenido digital', 'Descarga', 'Se descargó el contenido: ' + item.nombre, { tipo: 'download' });
+    const item = findDigitalItem(id);
+    if (!item) { showMessage('No se encontró el contenido seleccionado. Recarga la página.', 'error'); return; }
+    if (!item.ruta) { showMessage('Archivo pendiente: este contenido todavía no tiene un archivo adjunto.', 'info'); return; }
+    // Open the tab synchronously (still inside the click) so the browser does not block it.
+    const win = window.open('', '_blank');
+    try {
+      const { data: sessionData } = await ensureClient().auth.getSession();
+      if (!sessionData || !sessionData.session) throw new Error('Tu sesión expiró. Inicia sesión nuevamente para descargar el archivo.');
+      const fileName = item.nombreArchivo || item.ruta.split('/').pop();
+      const { data, error } = await ensureClient().storage.from(SUPABASE_BUCKET)
+        .createSignedUrl(item.ruta, 90, { download: fileName || true });
+      if (error || !data?.signedUrl) {
+        const raw = (error && error.message) || 'sin detalle';
+        const folder = item.ruta.split('/')[0];
+        let hint = '';
+        if (item.dbId && folder !== String(item.dbId)) {
+          hint = ' La ruta del archivo no está dentro de la carpeta del registro (' + item.dbId + '/…), por lo que la política de Storage no permite leerlo a usuarios no administradores.';
+        } else if (/not found|unauthorized|permission|denied|row-level/i.test(raw)) {
+          hint = ' Supabase rechazó el acceso: el archivo no existe o tu cuenta no tiene permiso (el contenido debe estar publicado y asignado a uno de tus departamentos).';
+        }
+        throw new Error('No fue posible generar el enlace de descarga (' + raw + ').' + hint);
+      }
+      if (win) { win.opener = null; win.location.href = data.signedUrl; }
+      else window.location.assign(data.signedUrl);
+      await writeActivity('Contenido digital', 'Descarga', 'Se descargó el contenido: ' + item.nombre, { tipo: 'download' });
+    } catch (error) {
+      if (win) win.close();
+      console.error('[Motum descarga]', error);
+      showMessage(error.message || 'No fue posible descargar el archivo.', 'error');
+    }
   };
 
   // ── 6. Categories ─────────────────────────────────────────────────────────
