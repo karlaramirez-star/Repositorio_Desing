@@ -17,7 +17,7 @@
   // Correos automáticos al publicar (nueva plantilla, plantilla actualizada y
   // nuevo contenido digital). Temporalmente desactivados mientras se resuelve el
   // HTTP 401 del servicio de correo. Cambiar a true para volver a enviarlos.
-  const AUTO_EMAIL_NOTIFICATIONS_ENABLED = false;
+  const AUTO_EMAIL_NOTIFICATIONS_ENABLED = true;
   const AUTO_EMAIL_TYPES = ['nueva_plantilla', 'actualiza_plantilla', 'nuevo_contenido'];
 
   let sbClient = null;
