@@ -261,3 +261,127 @@ BEFORE UPDATE OF usuario_id, rol_id OR DELETE
 ON public.usuario_roles
 FOR EACH ROW
 EXECUTE FUNCTION public.proteger_rol_superadministrador();
+
+
+-- =========================================================
+-- PROTECCION INTEGRAL DE LA CUENTA SUPERADMINISTRADORA
+-- =========================================================
+
+-- Impedir cambios en cualquier dato del perfil protegido.
+CREATE OR REPLACE FUNCTION public.proteger_cambios_perfil_superadmin()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_email CONSTANT text := 'karlaramirez@tecnomotum.com';
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+
+    IF LOWER(COALESCE(OLD.correo, '')) = v_email THEN
+      IF NEW.id IS DISTINCT FROM OLD.id
+         OR NEW.nombre_completo IS DISTINCT FROM OLD.nombre_completo
+         OR NEW.correo IS DISTINCT FROM OLD.correo
+         OR NEW.telefono IS DISTINCT FROM OLD.telefono
+         OR NEW.activo IS DISTINCT FROM OLD.activo
+         OR NEW.created_at IS DISTINCT FROM OLD.created_at
+         OR NEW.updated_at IS DISTINCT FROM OLD.updated_at
+         OR NEW.avatar_url IS DISTINCT FROM OLD.avatar_url THEN
+
+        RAISE EXCEPTION
+          'La cuenta Superadministradora no puede modificarse.';
+      END IF;
+    END IF;
+
+    IF LOWER(COALESCE(NEW.correo, '')) = v_email
+       AND LOWER(COALESCE(OLD.correo, '')) <> v_email THEN
+
+      RAISE EXCEPTION
+        'El correo de Superadministradora está reservado.';
+    END IF;
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'DELETE' THEN
+
+    IF LOWER(COALESCE(OLD.correo, '')) = v_email THEN
+      RAISE EXCEPTION
+        'La cuenta Superadministradora no puede eliminarse.';
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS proteger_cambios_perfil_superadmin
+ON public.perfiles;
+
+CREATE TRIGGER proteger_cambios_perfil_superadmin
+BEFORE UPDATE OR DELETE
+ON public.perfiles
+FOR EACH ROW
+EXECUTE FUNCTION public.proteger_cambios_perfil_superadmin();
+
+
+-- Impedir eliminar o renombrar el rol Administrador.
+CREATE OR REPLACE FUNCTION public.proteger_catalogo_rol_administrador()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+
+  IF TG_OP = 'INSERT' THEN
+    IF LOWER(COALESCE(NEW.nombre, '')) = 'administrador' THEN
+      RAISE EXCEPTION
+        'El nombre Administrador está reservado.';
+    END IF;
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'UPDATE' THEN
+
+    IF LOWER(COALESCE(OLD.nombre, '')) = 'administrador'
+       AND LOWER(COALESCE(NEW.nombre, '')) <> 'administrador' THEN
+
+      RAISE EXCEPTION
+        'El rol Administrador no puede renombrarse.';
+    END IF;
+
+    IF LOWER(COALESCE(OLD.nombre, '')) <> 'administrador'
+       AND LOWER(COALESCE(NEW.nombre, '')) = 'administrador' THEN
+
+      RAISE EXCEPTION
+        'El nombre Administrador está reservado.';
+    END IF;
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'DELETE' THEN
+
+    IF LOWER(COALESCE(OLD.nombre, '')) = 'administrador' THEN
+      RAISE EXCEPTION
+        'El rol Administrador no puede eliminarse.';
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS proteger_catalogo_rol_administrador
+ON public.roles;
+
+CREATE TRIGGER proteger_catalogo_rol_administrador
+BEFORE INSERT OR UPDATE OR DELETE
+ON public.roles
+FOR EACH ROW
+EXECUTE FUNCTION public.proteger_catalogo_rol_administrador();
+
