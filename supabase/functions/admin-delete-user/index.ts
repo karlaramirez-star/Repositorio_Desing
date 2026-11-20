@@ -1,4 +1,7 @@
+
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const SUPERADMIN_EMAIL = 'karlaramirez@tecnomotum.com'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,9 +15,17 @@ const json = (status: number, body: Record<string, unknown>) =>
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 
+const normalizeEmail = (email: unknown) =>
+  String(email || '').trim().toLowerCase()
+
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
-  if (req.method !== 'POST') return json(405, { error: 'Método no permitido.' })
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (req.method !== 'POST') {
+    return json(405, { error: 'Método no permitido.' })
+  }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
@@ -25,6 +36,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const authorization = req.headers.get('Authorization') || ''
+
   if (!authorization.startsWith('Bearer ')) {
     return json(401, { error: 'Sesión no válida.' })
   }
@@ -38,7 +50,9 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const { data: authData, error: authError } = await userClient.auth.getUser()
+  // 1. Validar identidad del administrador que solicita la operación.
+  const { data: authData, error: authError } =
+    await userClient.auth.getUser()
 
   if (authError || !authData.user) {
     return json(401, { error: 'No se pudo validar la sesión.' })
@@ -46,94 +60,174 @@ Deno.serve(async (req: Request) => {
 
   const callerId = authData.user.id
 
-  const { data: callerProfile, error: profileError } = await adminClient
-    .from('perfiles')
-    .select('activo')
-    .eq('id', callerId)
-    .maybeSingle()
+  const { data: callerProfile, error: profileError } =
+    await adminClient
+      .from('perfiles')
+      .select('activo,correo')
+      .eq('id', callerId)
+      .maybeSingle()
 
   if (profileError || !callerProfile?.activo) {
-    return json(403, { error: 'La cuenta administradora no está activa.' })
+    return json(403, {
+      error: 'La cuenta administradora no está activa.'
+    })
   }
 
-  const { data: adminRole, error: adminRoleError } = await adminClient
-    .from('roles')
-    .select('id,nombre')
-    .ilike('nombre', 'Administrador')
-    .maybeSingle()
+  const callerIsSuperAdmin =
+    normalizeEmail(authData.user.email) === SUPERADMIN_EMAIL ||
+    normalizeEmail(callerProfile.correo) === SUPERADMIN_EMAIL
+
+  // 2. Validar el rol administrativo.
+  const { data: adminRole, error: adminRoleError } =
+    await adminClient
+      .from('roles')
+      .select('id,nombre')
+      .ilike('nombre', 'Administrador')
+      .maybeSingle()
 
   if (adminRoleError || !adminRole) {
-    return json(500, { error: 'No fue posible validar el rol Administrador.' })
+    return json(500, {
+      error: 'No fue posible validar el rol Administrador.'
+    })
   }
 
-  const { data: callerRoles, error: callerRolesError } = await adminClient
-    .from('usuario_roles')
-    .select('rol_id')
-    .eq('usuario_id', callerId)
+  const { data: callerRoles, error: callerRolesError } =
+    await adminClient
+      .from('usuario_roles')
+      .select('rol_id')
+      .eq('usuario_id', callerId)
 
   if (callerRolesError) {
-    return json(500, { error: 'No fue posible validar los permisos.' })
+    return json(500, {
+      error: 'No fue posible validar los permisos.'
+    })
   }
 
-  if (!(callerRoles || []).some((row: any) => row.rol_id === adminRole.id)) {
-    return json(403, { error: 'Solo un Administrador puede eliminar usuarios.' })
+  const hasAdminRole = (callerRoles || []).some(
+    (row: any) => row.rol_id === adminRole.id
+  )
+
+  if (!callerIsSuperAdmin && !hasAdminRole) {
+    return json(403, {
+      error: 'Solo un Administrador puede eliminar usuarios.'
+    })
   }
 
+  // 3. Validar los datos recibidos.
   let body: any
 
   try {
     body = await req.json()
   } catch {
-    return json(400, { error: 'El cuerpo de la solicitud no contiene JSON válido.' })
+    return json(400, {
+      error: 'El cuerpo de la solicitud no contiene JSON válido.'
+    })
   }
 
-  const targetUserId = String(body.user_id || '').trim()
+  const targetUserId = String(body?.user_id || '').trim()
 
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetUserId)) {
-    return json(400, { error: 'El identificador del usuario no es válido.' })
+    return json(400, {
+      error: 'El identificador del usuario no es válido.'
+    })
   }
 
   if (targetUserId === callerId) {
-    return json(409, { error: 'No puedes eliminar tu propia cuenta.' })
+    return json(409, {
+      error: 'No puedes eliminar tu propia cuenta.'
+    })
   }
 
-  const { data: targetProfile, error: targetProfileError } = await adminClient
-    .from('perfiles')
-    .select('id,correo')
-    .eq('id', targetUserId)
-    .maybeSingle()
+  // 4. Consultar la cuenta real en Supabase Auth.
+  const { data: targetAuthData, error: targetAuthError } =
+    await adminClient.auth.admin.getUserById(targetUserId)
+
+  if (targetAuthError || !targetAuthData.user) {
+    return json(404, {
+      error: 'No se encontró la cuenta de autenticación.'
+    })
+  }
+
+  // 5. Consultar el perfil asociado.
+  const { data: targetProfile, error: targetProfileError } =
+    await adminClient
+      .from('perfiles')
+      .select('id,correo,activo')
+      .eq('id', targetUserId)
+      .maybeSingle()
 
   if (targetProfileError) {
-    return json(500, { error: 'No fue posible consultar el perfil.' })
+    return json(500, {
+      error: 'No fue posible consultar el perfil.'
+    })
   }
 
   if (!targetProfile) {
-    return json(404, { error: 'El usuario no existe en la aplicación.' })
+    return json(404, {
+      error: 'El usuario no existe en la aplicación.'
+    })
   }
 
-  // Validar que siempre quede al menos un administrador activo.
-  const { data: adminAssignments, error: assignmentsError } = await adminClient
-    .from('usuario_roles')
-    .select('usuario_id')
-    .eq('rol_id', adminRole.id)
+  // 6. Protección permanente de la Superadministradora.
+  const profileEmail = normalizeEmail(targetProfile.correo)
+  const authEmail = normalizeEmail(targetAuthData.user.email)
 
-  if (assignmentsError) {
-    return json(500, { error: 'No fue posible validar los administradores.' })
+  if (
+    profileEmail === SUPERADMIN_EMAIL ||
+    authEmail === SUPERADMIN_EMAIL
+  ) {
+    return json(403, {
+      error: 'La cuenta Superadministradora está protegida y no puede eliminarse.'
+    })
   }
 
-  const adminIds = [...new Set(
-    (adminAssignments || []).map((row: any) => row.usuario_id)
-  )]
+  // 7. Validar que no se elimine al último Administrador activo.
+  const { data: targetRoles, error: targetRolesError } =
+    await adminClient
+      .from('usuario_roles')
+      .select('rol_id')
+      .eq('usuario_id', targetUserId)
 
-  if (adminIds.includes(targetUserId)) {
-    const { data: activeAdmins, error: activeAdminsError } = await adminClient
-      .from('perfiles')
-      .select('id')
-      .in('id', adminIds)
-      .eq('activo', true)
+  if (targetRolesError) {
+    return json(500, {
+      error: 'No fue posible consultar los roles del usuario.'
+    })
+  }
+
+  const targetIsAdmin = (targetRoles || []).some(
+    (row: any) => row.rol_id === adminRole.id
+  )
+
+  if (targetIsAdmin && targetProfile.activo) {
+    const { data: adminAssignments, error: assignmentsError } =
+      await adminClient
+        .from('usuario_roles')
+        .select('usuario_id')
+        .eq('rol_id', adminRole.id)
+
+    if (assignmentsError) {
+      return json(500, {
+        error: 'No fue posible validar los administradores.'
+      })
+    }
+
+    const adminIds = [
+      ...new Set((adminAssignments || []).map(
+        (row: any) => row.usuario_id
+      ))
+    ]
+
+    const { data: activeAdmins, error: activeAdminsError } =
+      await adminClient
+        .from('perfiles')
+        .select('id')
+        .in('id', adminIds)
+        .eq('activo', true)
 
     if (activeAdminsError) {
-      return json(500, { error: 'No fue posible validar los administradores activos.' })
+      return json(500, {
+        error: 'No fue posible validar los administradores activos.'
+      })
     }
 
     const otherActiveAdmins = (activeAdmins || []).filter(
@@ -147,12 +241,16 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // Eliminar la identidad de Auth.
-  const { error: deleteError } = await adminClient.auth.admin.deleteUser(targetUserId)
+  // 8. Ejecutar eliminación definitiva.
+  // La base de datos también protege a la Superadministradora
+  // y al último Administrador dentro de la transacción.
+  const { error: deleteError } =
+    await adminClient.auth.admin.deleteUser(targetUserId)
 
   if (deleteError) {
     return json(409, {
-      error: 'Supabase no pudo eliminar la cuenta. Detalle: ' + deleteError.message
+      error: 'Supabase no pudo eliminar la cuenta. Detalle: ' +
+        deleteError.message
     })
   }
 
