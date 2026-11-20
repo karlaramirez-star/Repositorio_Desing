@@ -385,3 +385,49 @@ ON public.roles
 FOR EACH ROW
 EXECUTE FUNCTION public.proteger_catalogo_rol_administrador();
 
+
+-- Ajuste: proteger identidad y acceso, permitiendo actualizar
+-- nombre, telefono y fotografia de la Superadministradora.
+CREATE OR REPLACE FUNCTION public.proteger_cambios_perfil_superadmin()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_email CONSTANT text := 'karlaramirez@tecnomotum.com';
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+
+    IF LOWER(COALESCE(OLD.correo, '')) = v_email THEN
+      IF NEW.id IS DISTINCT FROM OLD.id
+         OR LOWER(COALESCE(NEW.correo, '')) <> v_email
+         OR NEW.activo IS DISTINCT FROM TRUE THEN
+        RAISE EXCEPTION
+          'La identidad y el acceso de la Superadministradora están protegidos.';
+      END IF;
+    END IF;
+
+    IF LOWER(COALESCE(NEW.correo, '')) = v_email
+       AND LOWER(COALESCE(OLD.correo, '')) <> v_email THEN
+      RAISE EXCEPTION
+        'El correo de Superadministradora está reservado.';
+    END IF;
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'DELETE' THEN
+
+    IF LOWER(COALESCE(OLD.correo, '')) = v_email THEN
+      RAISE EXCEPTION
+        'La cuenta Superadministradora no puede eliminarse.';
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
