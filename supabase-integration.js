@@ -678,7 +678,13 @@ const admin = isSuperAdmin ||
     const dept = deptLocalId ? localDepartment(deptLocalId) : null;
     if (!name) { errEl.textContent = 'El nombre es obligatorio.'; errEl.style.display = 'block'; return; }
     if (!email || !email.includes('@')) { errEl.textContent = 'Correo inválido.'; errEl.style.display = 'block'; return; }
-    if (!String(email).endsWith('@' + CORPORATE_DOMAIN)) { errEl.textContent = 'Solo se permiten correos @' + CORPORATE_DOMAIN + '.'; errEl.style.display = 'block'; return; }
+    if (!String(email).endsWith('@' + CORPORATE_DOMAIN))
+    if (!id && isSuperAdminEmail(email)) {
+  errEl.textContent = 'Este correo está reservado para la cuenta Superadministradora.';
+  errEl.style.display = 'block';
+  return;
+}
+    { errEl.textContent = 'Solo se permiten correos @' + CORPORATE_DOMAIN + '.'; errEl.style.display = 'block'; return; }
     if (roleName !== 'Administrador' && !dept) { errEl.textContent = 'Selecciona un departamento para este usuario.'; errEl.style.display = 'block'; return; }
     errEl.style.display = 'none';
     const btn = $('user-modal').querySelector('.modal-foot .btn-primary');
@@ -694,6 +700,9 @@ const admin = isSuperAdmin ||
       } else {
         const user = (window.USERS_DB || []).find((item) => String(item.id) === String(id));
         if (!user || !user.authUserId) throw new Error('No se encontró el identificador de autenticación del usuario.');
+        if (isSuperAdminEmail(user.email)) {
+  throw new Error('La cuenta Superadministradora está protegida y no se puede modificar.');
+}
         if (email !== user.email.toLowerCase()) throw new Error('El correo de acceso no se cambia desde este formulario; debe actualizarse desde la administración de Auth.');
         const { error: profileError } = await ensureClient().from('perfiles').update({
           nombre_completo: name, telefono: phone || null, activo: active, updated_at: new Date().toISOString()
