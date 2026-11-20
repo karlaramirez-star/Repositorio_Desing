@@ -431,3 +431,89 @@ END;
 $$;
 
 
+-- =========================================================
+-- ULTIMO REFUERZO: RESERVAR LA IDENTIDAD SUPERADMIN
+-- =========================================================
+
+CREATE OR REPLACE FUNCTION public.proteger_cambios_perfil_superadmin()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_email CONSTANT text := 'karlaramirez@tecnomotum.com';
+BEGIN
+
+  IF TG_OP = 'INSERT' THEN
+
+    IF LOWER(COALESCE(NEW.correo, '')) = v_email
+       AND NOT EXISTS (
+         SELECT 1
+         FROM auth.users u
+         WHERE u.id = NEW.id
+           AND LOWER(u.email) = v_email
+       ) THEN
+
+      RAISE EXCEPTION
+        'El correo está reservado para la Superadministradora.';
+    END IF;
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'UPDATE' THEN
+
+    IF LOWER(COALESCE(OLD.correo, '')) = v_email THEN
+      IF NEW.id IS DISTINCT FROM OLD.id
+         OR LOWER(COALESCE(NEW.correo, '')) <> v_email
+         OR NEW.activo IS DISTINCT FROM TRUE THEN
+
+        RAISE EXCEPTION
+          'La identidad y el acceso de la Superadministradora están protegidos.';
+      END IF;
+    END IF;
+
+    IF LOWER(COALESCE(NEW.correo, '')) = v_email
+       AND LOWER(COALESCE(OLD.correo, '')) <> v_email THEN
+
+      RAISE EXCEPTION
+        'El correo de Superadministradora está reservado.';
+    END IF;
+
+    RETURN NEW;
+
+  ELSIF TG_OP = 'DELETE' THEN
+
+    IF LOWER(COALESCE(OLD.correo, '')) = v_email THEN
+      RAISE EXCEPTION
+        'La cuenta Superadministradora no puede eliminarse.';
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS proteger_cambios_perfil_superadmin
+ON public.perfiles;
+
+CREATE TRIGGER proteger_cambios_perfil_superadmin
+BEFORE INSERT OR UPDATE OR DELETE
+ON public.perfiles
+FOR EACH ROW
+EXECUTE FUNCTION public.proteger_cambios_perfil_superadmin();
+
+-- El rol Administrador se protege contra modificaciones y eliminaciones,
+-- pero se permiten operaciones INSERT normales de la aplicación.
+DROP TRIGGER IF EXISTS proteger_catalogo_rol_administrador
+ON public.roles;
+
+CREATE TRIGGER proteger_catalogo_rol_administrador
+BEFORE UPDATE OR DELETE
+ON public.roles
+FOR EACH ROW
+EXECUTE FUNCTION public.proteger_catalogo_rol_administrador();
+
+
