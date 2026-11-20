@@ -201,13 +201,31 @@ const ADMIN_INVITE_FUNCTION = 'admin-invite-user';
       .from('usuario_roles').select('rol_id').eq('usuario_id', user.id);
     if (roleRowsError) throw roleRowsError;
     const roleIds = (userRoleRows || []).map((row) => row.rol_id);
-    if (!roleIds.length) throw new Error('Tu cuenta todavía no tiene un rol asignado. Contacta al administrador.');
 
-    const { data: roles, error: rolesError } = await client.from('roles')
-      .select('id,nombre').in('id', roleIds);
-    if (rolesError) throw rolesError;
-    const roleNames = (roles || []).map((row) => row.nombre);
-    const admin = roleNames.some((name) => String(name).toLowerCase() === 'administrador');
+const isSuperAdmin =
+  isSuperAdminEmail(user.email) ||
+  isSuperAdminEmail(profile.correo);
+
+if (!roleIds.length && !isSuperAdmin) {
+  throw new Error('Tu cuenta todavía no tiene un rol asignado. Contacta al administrador.');
+}
+
+let roles = [];
+
+if (roleIds.length) {
+  const { data, error: rolesError } = await client
+    .from('roles')
+    .select('id,nombre')
+    .in('id', roleIds);
+
+  if (rolesError) throw rolesError;
+  roles = data || [];
+}
+
+const roleNames = roles.map((row) => row.nombre);
+
+const admin = isSuperAdmin ||
+  roleNames.some((name) => String(name).toLowerCase() === 'administrador');
 
     let permissionCodes = [];
     if (roleIds.length) {
