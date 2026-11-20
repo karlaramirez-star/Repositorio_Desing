@@ -13,7 +13,10 @@
   const SUPABASE_BUCKET = 'plantillas';
   const SUPABASE_AVATAR_BUCKET = 'avatars';
   const CORPORATE_DOMAIN = 'tecnomotum.com';
-  const ADMIN_INVITE_FUNCTION = 'admin-invite-user';
+const SUPERADMIN_EMAIL = 'karlaramirez@tecnomotum.com';
+const isSuperAdminEmail = (email) =>
+  String(email || '').trim().toLowerCase() === SUPERADMIN_EMAIL;
+const ADMIN_INVITE_FUNCTION = 'admin-invite-user';
   // Correos automáticos al publicar (nueva plantilla, plantilla actualizada y
   // nuevo contenido digital). Temporalmente desactivados mientras se resuelve el
   // HTTP 401 del servicio de correo. Cambiar a true para volver a enviarlos.
@@ -582,14 +585,17 @@
       '<td><div class="td-name">' + safeText(u.nombre) + '</div></td>' +
       '<td style="color:var(--muted);font-size:12px">' + safeText(u.email) + '</td>' +
       '<td><span class="badge" style="background:var(--blue-light);color:var(--blue-main)">' + safeText((u.areas || [u.area]).join(', ')) + '</span></td>' +
-      '<td><span class="badge" style="background:#f0f9ff;color:#0369a1">' + safeText(u.rol || 'Usuario') + '</span></td>' +
+     '<td><span class="badge" style="background:' + (isSuperAdminEmail(u.email) ? '#fef3c7;color:#92400e' : '#f0f9ff;color:#0369a1') + '">' + safeText(isSuperAdminEmail(u.email) ? 'Superadministradora' : (u.rol || 'Usuario')) + '</span></td>' +
       '<td><span class="badge" style="background:' + (u.activo ? '#dcfce7' : '#f1f5f9') + ';color:' + (u.activo ? '#16a34a' : '#64748b') + '">' + (u.activo ? 'Activo' : 'Inactivo') + '</span></td>' +
-      '<td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openUserModal(' + u.id + ')">&#9998;</button>' +
-     
-      '<button class="icon-btn" title="Desactivar" onclick="deleteUser(' + u.id + ')">&#10005;</button>' +
-      (isAdmin() && u.authUserId !== currentUserId()
-        ? '<button class="icon-btn danger" title="Eliminar definitivamente" aria-label="Eliminar definitivamente a ' + safeText(u.nombre) + '" onclick="permanentlyDeleteUser(' + u.id + ')">&#128465;</button>'
-        : '') + '</div></td></tr>').join('');
+      '<td><div class="row-actions">' +
+(isSuperAdminEmail(u.email)
+  ? '<span class="badge" title="Cuenta protegida permanentemente" style="background:#fef3c7;color:#92400e">Cuenta protegida</span>'
+  : '<button class="icon-btn" title="Editar" onclick="openUserModal(' + u.id + ')">&#9998;</button>' +
+    '<button class="icon-btn" title="Desactivar" onclick="deleteUser(' + u.id + ')">&#10005;</button>' +
+    (isAdmin() && u.authUserId !== currentUserId()
+      ? '<button class="icon-btn danger" title="Eliminar definitivamente" aria-label="Eliminar definitivamente a ' + safeText(u.nombre) + '" onclick="permanentlyDeleteUser(' + u.id + ')">&#128465;</button>'
+      : '')
+) + '</div></td></tr>').join('');
 
     sec.innerHTML = '<div class="stats-row" style="grid-template-columns:repeat(3,1fr)">' +
       '<div class="stat-card"><div class="stat-label">Total usuarios</div><div class="stat-val">' + (window.USERS_DB || []).length + '</div></div>' +
@@ -613,6 +619,10 @@
   window.openUserModal = function openUserModal(id) {
     ensurePhoneField();
     const user = id ? (window.USERS_DB || []).find((item) => item.id === id) : null;
+    if (user && isSuperAdminEmail(user.email)) {
+  showMessage('La cuenta Superadministradora está protegida y no se puede editar.', 'error');
+  return;
+}
     window.userModalData = user || null;
     $('umod-title').textContent = user ? 'Editar usuario' : 'Invitar usuario';
     $('umod-id').value = user ? user.id : '';
@@ -701,6 +711,10 @@
   window.deleteUser = async function deleteUser(id) {
     const user = (window.USERS_DB || []).find((item) => item.id === id);
     if (!user || !user.authUserId) return;
+    if (isSuperAdminEmail(user.email)) {
+  showMessage('La cuenta Superadministradora no se puede desactivar.', 'error');
+  return;
+}
 
     if (!confirm('¿Desactivar el acceso de ' + user.nombre + '?')) return;
 
@@ -744,6 +758,10 @@
       showMessage('No se encontró el identificador del usuario.', 'error');
       return;
     }
+    if (isSuperAdminEmail(user.email)) {
+  showMessage('La cuenta Superadministradora está protegida y no puede eliminarse.', 'error');
+  return;
+}
 
     if (user.authUserId === currentUserId()) {
       showMessage('No puedes eliminar tu propia cuenta.', 'error');
