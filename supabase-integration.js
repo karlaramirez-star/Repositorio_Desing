@@ -678,13 +678,19 @@ const admin = isSuperAdmin ||
     const dept = deptLocalId ? localDepartment(deptLocalId) : null;
     if (!name) { errEl.textContent = 'El nombre es obligatorio.'; errEl.style.display = 'block'; return; }
     if (!email || !email.includes('@')) { errEl.textContent = 'Correo inválido.'; errEl.style.display = 'block'; return; }
-    if (!String(email).endsWith('@' + CORPORATE_DOMAIN))
-    if (!id && isSuperAdminEmail(email)) {
+   
+if (!String(email).endsWith('@' + CORPORATE_DOMAIN)) {
+  errEl.textContent = 'Solo se permiten correos @' + CORPORATE_DOMAIN + '.';
+  errEl.style.display = 'block';
+  return;
+}
+
+if (!id && isSuperAdminEmail(email)) {
   errEl.textContent = 'Este correo está reservado para la cuenta Superadministradora.';
   errEl.style.display = 'block';
   return;
 }
-    { errEl.textContent = 'Solo se permiten correos @' + CORPORATE_DOMAIN + '.'; errEl.style.display = 'block'; return; }
+
     if (roleName !== 'Administrador' && !dept) { errEl.textContent = 'Selecciona un departamento para este usuario.'; errEl.style.display = 'block'; return; }
     errEl.style.display = 'none';
     const btn = $('user-modal').querySelector('.modal-foot .btn-primary');
