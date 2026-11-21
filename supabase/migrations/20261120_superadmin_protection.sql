@@ -511,8 +511,8 @@ DROP TRIGGER IF EXISTS proteger_catalogo_rol_administrador
 ON public.roles;
 
 CREATE TRIGGER proteger_catalogo_rol_administrador
-BEFORE UPDATE OR DELETE
-ON public.roles
+BEFORE INSERT OR UPDATE OR DELETE
+  ON public.roles
 FOR EACH ROW
 EXECUTE FUNCTION public.proteger_catalogo_rol_administrador();
 
