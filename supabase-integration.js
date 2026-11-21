@@ -13,7 +13,10 @@
   const SUPABASE_BUCKET = 'plantillas';
   const SUPABASE_AVATAR_BUCKET = 'avatars';
   const CORPORATE_DOMAIN = 'tecnomotum.com';
-  const ADMIN_INVITE_FUNCTION = 'admin-invite-user';
+const SUPERADMIN_EMAIL = 'karlaramirez@tecnomotum.com';
+const isSuperAdminEmail = (email) =>
+  String(email || '').trim().toLowerCase() === SUPERADMIN_EMAIL;
+const ADMIN_INVITE_FUNCTION = 'admin-invite-user';
   // Correos automáticos al publicar (nueva plantilla, plantilla actualizada y
   // nuevo contenido digital). Temporalmente desactivados mientras se resuelve el
   // HTTP 401 del servicio de correo. Cambiar a true para volver a enviarlos.
@@ -198,13 +201,31 @@
       .from('usuario_roles').select('rol_id').eq('usuario_id', user.id);
     if (roleRowsError) throw roleRowsError;
     const roleIds = (userRoleRows || []).map((row) => row.rol_id);
-    if (!roleIds.length) throw new Error('Tu cuenta todavía no tiene un rol asignado. Contacta al administrador.');
 
-    const { data: roles, error: rolesError } = await client.from('roles')
-      .select('id,nombre').in('id', roleIds);
-    if (rolesError) throw rolesError;
-    const roleNames = (roles || []).map((row) => row.nombre);
-    const admin = roleNames.some((name) => String(name).toLowerCase() === 'administrador');
+const isSuperAdmin =
+  isSuperAdminEmail(user.email) ||
+  isSuperAdminEmail(profile.correo);
+
+if (!roleIds.length && !isSuperAdmin) {
+  throw new Error('Tu cuenta todavía no tiene un rol asignado. Contacta al administrador.');
+}
+
+let roles = [];
+
+if (roleIds.length) {
+  const { data, error: rolesError } = await client
+    .from('roles')
+    .select('id,nombre')
+    .in('id', roleIds);
+
+  if (rolesError) throw rolesError;
+  roles = data || [];
+}
+
+const roleNames = roles.map((row) => row.nombre);
+
+const admin = isSuperAdmin ||
+  roleNames.some((name) => String(name).toLowerCase() === 'administrador');
 
     let permissionCodes = [];
     if (roleIds.length) {
@@ -582,14 +603,17 @@
       '<td><div class="td-name">' + safeText(u.nombre) + '</div></td>' +
       '<td style="color:var(--muted);font-size:12px">' + safeText(u.email) + '</td>' +
       '<td><span class="badge" style="background:var(--blue-light);color:var(--blue-main)">' + safeText((u.areas || [u.area]).join(', ')) + '</span></td>' +
-      '<td><span class="badge" style="background:#f0f9ff;color:#0369a1">' + safeText(u.rol || 'Usuario') + '</span></td>' +
+     '<td><span class="badge" style="background:' + (isSuperAdminEmail(u.email) ? '#fef3c7;color:#92400e' : '#f0f9ff;color:#0369a1') + '">' + safeText(isSuperAdminEmail(u.email) ? 'Superadministradora' : (u.rol || 'Usuario')) + '</span></td>' +
       '<td><span class="badge" style="background:' + (u.activo ? '#dcfce7' : '#f1f5f9') + ';color:' + (u.activo ? '#16a34a' : '#64748b') + '">' + (u.activo ? 'Activo' : 'Inactivo') + '</span></td>' +
-      '<td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openUserModal(' + u.id + ')">&#9998;</button>' +
-     
-      '<button class="icon-btn" title="Desactivar" onclick="deleteUser(' + u.id + ')">&#10005;</button>' +
-      (isAdmin() && u.authUserId !== currentUserId()
-        ? '<button class="icon-btn danger" title="Eliminar definitivamente" aria-label="Eliminar definitivamente a ' + safeText(u.nombre) + '" onclick="permanentlyDeleteUser(' + u.id + ')">&#128465;</button>'
-        : '') + '</div></td></tr>').join('');
+      '<td><div class="row-actions">' +
+(isSuperAdminEmail(u.email)
+  ? '<span class="badge" title="Cuenta protegida permanentemente" style="background:#fef3c7;color:#92400e">Cuenta protegida</span>'
+  : '<button class="icon-btn" title="Editar" onclick="openUserModal(' + u.id + ')">&#9998;</button>' +
+    '<button class="icon-btn" title="Desactivar" onclick="deleteUser(' + u.id + ')">&#10005;</button>' +
+    (isAdmin() && u.authUserId !== currentUserId()
+      ? '<button class="icon-btn danger" title="Eliminar definitivamente" aria-label="Eliminar definitivamente a ' + safeText(u.nombre) + '" onclick="permanentlyDeleteUser(' + u.id + ')">&#128465;</button>'
+      : '')
+) + '</div></td></tr>').join('');
 
     sec.innerHTML = '<div class="stats-row" style="grid-template-columns:repeat(3,1fr)">' +
       '<div class="stat-card"><div class="stat-label">Total usuarios</div><div class="stat-val">' + (window.USERS_DB || []).length + '</div></div>' +
@@ -613,6 +637,10 @@
   window.openUserModal = function openUserModal(id) {
     ensurePhoneField();
     const user = id ? (window.USERS_DB || []).find((item) => item.id === id) : null;
+    if (user && isSuperAdminEmail(user.email)) {
+  showMessage('La cuenta Superadministradora está protegida y no se puede editar.', 'error');
+  return;
+}
     window.userModalData = user || null;
     $('umod-title').textContent = user ? 'Editar usuario' : 'Invitar usuario';
     $('umod-id').value = user ? user.id : '';
@@ -650,7 +678,19 @@
     const dept = deptLocalId ? localDepartment(deptLocalId) : null;
     if (!name) { errEl.textContent = 'El nombre es obligatorio.'; errEl.style.display = 'block'; return; }
     if (!email || !email.includes('@')) { errEl.textContent = 'Correo inválido.'; errEl.style.display = 'block'; return; }
-    if (!String(email).endsWith('@' + CORPORATE_DOMAIN)) { errEl.textContent = 'Solo se permiten correos @' + CORPORATE_DOMAIN + '.'; errEl.style.display = 'block'; return; }
+   
+if (!String(email).endsWith('@' + CORPORATE_DOMAIN)) {
+  errEl.textContent = 'Solo se permiten correos @' + CORPORATE_DOMAIN + '.';
+  errEl.style.display = 'block';
+  return;
+}
+
+if (!id && isSuperAdminEmail(email)) {
+  errEl.textContent = 'Este correo está reservado para la cuenta Superadministradora.';
+  errEl.style.display = 'block';
+  return;
+}
+
     if (roleName !== 'Administrador' && !dept) { errEl.textContent = 'Selecciona un departamento para este usuario.'; errEl.style.display = 'block'; return; }
     errEl.style.display = 'none';
     const btn = $('user-modal').querySelector('.modal-foot .btn-primary');
@@ -666,6 +706,9 @@
       } else {
         const user = (window.USERS_DB || []).find((item) => String(item.id) === String(id));
         if (!user || !user.authUserId) throw new Error('No se encontró el identificador de autenticación del usuario.');
+        if (isSuperAdminEmail(user.email)) {
+  throw new Error('La cuenta Superadministradora está protegida y no se puede modificar.');
+}
         if (email !== user.email.toLowerCase()) throw new Error('El correo de acceso no se cambia desde este formulario; debe actualizarse desde la administración de Auth.');
         const { error: profileError } = await ensureClient().from('perfiles').update({
           nombre_completo: name, telefono: phone || null, activo: active, updated_at: new Date().toISOString()
@@ -701,6 +744,10 @@
   window.deleteUser = async function deleteUser(id) {
     const user = (window.USERS_DB || []).find((item) => item.id === id);
     if (!user || !user.authUserId) return;
+    if (isSuperAdminEmail(user.email)) {
+  showMessage('La cuenta Superadministradora no se puede desactivar.', 'error');
+  return;
+}
 
     if (!confirm('¿Desactivar el acceso de ' + user.nombre + '?')) return;
 
@@ -744,6 +791,10 @@
       showMessage('No se encontró el identificador del usuario.', 'error');
       return;
     }
+    if (isSuperAdminEmail(user.email)) {
+  showMessage('La cuenta Superadministradora está protegida y no puede eliminarse.', 'error');
+  return;
+}
 
     if (user.authUserId === currentUserId()) {
       showMessage('No puedes eliminar tu propia cuenta.', 'error');
