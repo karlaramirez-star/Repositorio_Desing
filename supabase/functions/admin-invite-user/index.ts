@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
+const SUPERADMIN_EMAIL = 'karlaramirez@tecnomotum.com'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -75,7 +75,11 @@ Deno.serve(async (req: Request) => {
   if (!/^[^\s@]+@tecnomotum\.com$/i.test(email)) {
     return json(400, { error: 'Solo se permiten correos @tecnomotum.com.' })
   }
-
+if (email === SUPERADMIN_EMAIL) {
+  return json(403, {
+    error: 'El correo está reservado para la cuenta Superadministradora.'
+  })
+}
   const { data: role, error: roleError } = await adminClient
     .from('roles')
     .select('id,nombre')
