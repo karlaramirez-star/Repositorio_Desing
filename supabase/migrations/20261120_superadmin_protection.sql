@@ -186,7 +186,7 @@ DROP TRIGGER IF EXISTS proteger_perfil_superadmin_ultimo_admin
 ON public.perfiles;
 
 CREATE TRIGGER proteger_perfil_superadmin_ultimo_admin
-BEFORE INSERT OR UPDATE OR DELETE
+BEFORE UPDATE OR DELETE
 ON public.perfiles
 FOR EACH ROW
 EXECUTE FUNCTION public.proteger_perfil_superadministrador();
