@@ -321,8 +321,8 @@ DROP TRIGGER IF EXISTS proteger_cambios_perfil_superadmin
 ON public.perfiles;
 
 CREATE TRIGGER proteger_cambios_perfil_superadmin
-BEFORE UPDATE OR DELETE
-ON public.perfiles
+BEFORE INSERT OR UPDATE OR DELETE
+  ON public.perfiles
 FOR EACH ROW
 EXECUTE FUNCTION public.proteger_cambios_perfil_superadmin();
 
